@@ -27,6 +27,16 @@
   min-height: 0;
   overflow: hidden;
   font-family: inherit;
+
+  /* Mermaid color tokens, derived from host theme variables */
+  --md-mermaid-primary: var(--border-color, #e2e8f0);
+  --md-mermaid-primary-text: var(--text-color, #020617);
+  --md-mermaid-line: var(--border-color, #334155);
+  --md-mermaid-secondary: var(--hover-bg, rgba(0,0,0,0.03));
+  --md-mermaid-tertiary: var(--preview-bg, #ffffff);
+  --md-mermaid-secondary-text: var(--text-color, #020617);
+  --md-mermaid-actor-text: var(--text-color, #020617);
+  --md-mermaid-note-text: var(--text-color, #020617);
 }
 
 /* ── Toolbar ─────────────────────────────────────────────────── */
@@ -211,6 +221,42 @@
   margin: 1.5em 0;
 }
 
+/* All diagrams use the same fixed frame (square) so they are the same size in relation to each other */
+.md-preview .md-mermaid {
+  overflow: hidden;
+  margin: 1em 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 480px;
+  max-width: 100%;
+  aspect-ratio: 1;
+  height: auto;
+  box-sizing: border-box;
+}
+
+.md-preview .md-mermaid svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* ── Stronger contrast for Mermaid diagrams in dark mode ─────── */
+
+@media (prefers-color-scheme: dark) {
+  /* Solid text (no outline); dark fill for legibility on light node boxes */
+  .md-preview .md-mermaid svg text {
+    fill: #0f172a !important;
+  }
+
+  .md-preview .md-mermaid svg line,
+  .md-preview .md-mermaid svg path,
+  .md-preview .md-mermaid svg polyline,
+  .md-preview .md-mermaid svg polygon {
+    stroke: #475569 !important;
+  }
+}
+
 /* ── Dark mode (override via host or prefers-color-scheme) ───── */
 
 @media (prefers-color-scheme: dark) {
@@ -220,5 +266,15 @@
     --table-cell-color: #e2e8f0;
     --table-row-even-bg: #1e293b;
     --table-row-odd-bg: #0f172a;
+
+    /* Dark-theme Mermaid tokens: bright labels + lines on dark bg */
+    --md-mermaid-primary: var(--table-header-bg, #334155);
+    --md-mermaid-primary-text: #f9fafb;
+    --md-mermaid-line: #e5e7eb;
+    --md-mermaid-secondary: var(--table-row-even-bg, #1e293b);
+    --md-mermaid-tertiary: var(--table-row-odd-bg, #0f172a);
+    --md-mermaid-secondary-text: #e5e7eb;
+    --md-mermaid-actor-text: #f9fafb;
+    --md-mermaid-note-text: #f9fafb;
   }
 }
