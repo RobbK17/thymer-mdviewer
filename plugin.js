@@ -5,7 +5,7 @@
  * Auto-refreshes whenever the record's content changes.
  *
  * genvalue: 2026-03-03-13
- * version: 1.0.1
+ * version: 1.0.2
  */
 
 // ── External libs (pinned versions; check changelogs before upgrading) ──────────
