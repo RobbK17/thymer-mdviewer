@@ -5,5 +5,5 @@
 	"description": "Preview the current record as rendered Markdown in a read-only panel. Opens from the status bar; updates when you change records or edit content.",
 	"show_sidebar_items": true,
 	"show_cmdpal_items": true,
-	"version": "1.0.2"
+	"version": "1.0.3"
 }

@@ -36,7 +36,6 @@ Preview content is selectable and copyable.
 
 Basic example:
 
-
 ```mermaid
 graph TD
   A[Start] --> B{Choice}
@@ -51,7 +50,6 @@ pie title Pets
   "Fish" : 20
 ```
 
-
 Flowcharts, sequence diagrams, pie charts, and other [Mermaid](https://mermaid.js.org/) chart types are supported.
 
 
@@ -61,7 +59,22 @@ Flowcharts, sequence diagrams, pie charts, and other [Mermaid](https://mermaid.j
 |------------|---------|
 | `plugin.js` | Plugin logic: status bar item, panel (rightmost, first-pane active), marked + DOMPurify + Mermaid loading, table normalization, Mermaid extraction and render, theme presets, diagram frame sizing. |
 | `plugin.css` | Styles for toolbar, preview area, markdown content, tables, Mermaid containers (fixed frame), dark mode. |
-| `plugin.json` | Plugin manifest and collection config (name, views, fields, etc.). |
+| `plugin.json` | Plugin manifest (see below). |
+
+### Plugin configuration (`plugin.json`)
+
+This is a **Global App Plugin**. The Thymer SDK states that for global plugins only basic fields are relevant; the plugin code does not use views, fields, or collection settings.
+
+**Required:**
+- `ver` — Config version (e.g. `1`).
+- `name` — Plugin name shown in Thymer.
+- `icon` — Icon name (e.g. `file-text`).
+
+**Optional but recommended:**
+- `description` — Shown in the plugin list.
+- `show_sidebar_items` — Whether the plugin appears in sidebar (e.g. `true`).
+- `show_cmdpal_items` — Whether the plugin appears in the command palette (e.g. `true`).
+
 
 ## Dependencies
 

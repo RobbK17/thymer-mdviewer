@@ -5,7 +5,7 @@
  * Auto-refreshes whenever the record's content changes.
  *
  * genvalue: 2026-03-03-13
- * version: 1.0.2
+ * version: 1.0.3
  */
 
 // ── External libs (pinned versions; check changelogs before upgrading) ──────────
@@ -396,9 +396,9 @@ class Plugin extends AppPlugin {
     };
 
     this._statusBarItem = this.ui.addStatusBarItem({
-      label:   "MD Preview",
+      label:   "",
       icon:    "article",
-      tooltip: "Toggle Markdown Preview",
+      tooltip: "Markdown Preview",
       onClick: togglePreviewPanel,
     });
 
