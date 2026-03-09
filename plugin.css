@@ -162,6 +162,8 @@
   font-size: 0.85em;
 }
 
+/* ── Tables — base structure (no colors; presets below set them) ── */
+
 .md-preview table,
 .md-preview tr {
   user-select: text;
@@ -176,30 +178,117 @@
 }
 
 .md-preview th, .md-preview td {
-  border: 1px solid var(--border-color, #e2e8f0);
   padding: 6px 12px;
   text-align: left;
   user-select: text;
   -webkit-user-select: text;
 }
 
-.md-preview tbody td {
-  color: var(--table-cell-color, #334155);
+/* ── Table style: Hi-Contrast (default) — light ── */
+.md-plugin-wrap[data-table-style="hc"] .md-preview th {
+  border: 1px solid #94a3b8;
+  background: #1e3a5f;
+  color: #ffffff;
+  font-weight: 700;
+}
+.md-plugin-wrap[data-table-style="hc"] .md-preview td {
+  border: 1px solid #94a3b8;
+  color: #0f172a;
+}
+.md-plugin-wrap[data-table-style="hc"] .md-preview tbody tr:nth-child(even) td { background: #e8f4fd; }
+.md-plugin-wrap[data-table-style="hc"] .md-preview tbody tr:nth-child(odd)  td { background: #ffffff; }
+.md-plugin-wrap[data-table-style="hc"] .md-preview tbody tr:hover            td { background: #fef3c7; color: #0f172a; }
+
+/* ── Table style: Hi-Contrast — dark ── */
+@media (prefers-color-scheme: dark) {
+  .md-plugin-wrap[data-table-style="hc"] .md-preview th {
+    background: #1e40af;
+    border-color: #475569;
+  }
+  .md-plugin-wrap[data-table-style="hc"] .md-preview td {
+    color: #e2e8f0;
+    border-color: #475569;
+  }
+  .md-plugin-wrap[data-table-style="hc"] .md-preview tbody tr:nth-child(even) td { background: #1e293b; }
+  .md-plugin-wrap[data-table-style="hc"] .md-preview tbody tr:nth-child(odd)  td { background: #0f172a; }
+  .md-plugin-wrap[data-table-style="hc"] .md-preview tbody tr:hover            td { background: #78350f; color: #fef3c7; }
 }
 
-.md-preview th {
+/* ── Table style: Monochrome — light ── */
+.md-plugin-wrap[data-table-style="mono"] .md-preview th {
+  border: 2px solid #374151;
+  background: #111827;
+  color: #ffffff;
+  font-weight: 700;
+}
+.md-plugin-wrap[data-table-style="mono"] .md-preview td {
+  border: 1px solid #6b7280;
+  color: #111827;
+}
+.md-plugin-wrap[data-table-style="mono"] .md-preview tbody tr:nth-child(even) td { background: #f3f4f6; }
+.md-plugin-wrap[data-table-style="mono"] .md-preview tbody tr:nth-child(odd)  td { background: #ffffff; }
+.md-plugin-wrap[data-table-style="mono"] .md-preview tbody tr:hover            td { background: #e5e7eb; color: #111827; }
+
+/* ── Table style: Monochrome — dark ── */
+@media (prefers-color-scheme: dark) {
+  .md-plugin-wrap[data-table-style="mono"] .md-preview th {
+    background: #1f2937;
+    color: #f9fafb;
+    border-color: #6b7280;
+  }
+  .md-plugin-wrap[data-table-style="mono"] .md-preview td {
+    color: #e5e7eb;
+    border-color: #4b5563;
+  }
+  .md-plugin-wrap[data-table-style="mono"] .md-preview tbody tr:nth-child(even) td { background: #111827; }
+  .md-plugin-wrap[data-table-style="mono"] .md-preview tbody tr:nth-child(odd)  td { background: #1f2937; }
+  .md-plugin-wrap[data-table-style="mono"] .md-preview tbody tr:hover            td { background: #374151; color: #f9fafb; }
+}
+
+/* ── Table style: Blue Stripe — light ── */
+.md-plugin-wrap[data-table-style="blue"] .md-preview th {
+  border: 1px solid #3b82f6;
+  background: #1d4ed8;
+  color: #ffffff;
+  font-weight: 700;
+}
+.md-plugin-wrap[data-table-style="blue"] .md-preview td {
+  border: 1px solid #93c5fd;
+  color: #1e3a5f;
+}
+.md-plugin-wrap[data-table-style="blue"] .md-preview tbody tr:nth-child(even) td { background: #dbeafe; }
+.md-plugin-wrap[data-table-style="blue"] .md-preview tbody tr:nth-child(odd)  td { background: #ffffff; }
+.md-plugin-wrap[data-table-style="blue"] .md-preview tbody tr:hover            td { background: #bfdbfe; color: #1e3a5f; }
+
+/* ── Table style: Blue Stripe — dark ── */
+@media (prefers-color-scheme: dark) {
+  .md-plugin-wrap[data-table-style="blue"] .md-preview th {
+    background: #1e40af;
+    border-color: #3b82f6;
+  }
+  .md-plugin-wrap[data-table-style="blue"] .md-preview td {
+    color: #bfdbfe;
+    border-color: #1d4ed8;
+  }
+  .md-plugin-wrap[data-table-style="blue"] .md-preview tbody tr:nth-child(even) td { background: #1e3a5f; }
+  .md-plugin-wrap[data-table-style="blue"] .md-preview tbody tr:nth-child(odd)  td { background: #172554; }
+  .md-plugin-wrap[data-table-style="blue"] .md-preview tbody tr:hover            td { background: #1e40af; color: #e0f2fe; }
+}
+
+/* ── Table style: Auto (inherits from Thymer's theme variables) ── */
+.md-plugin-wrap[data-table-style="auto"] .md-preview th {
+  border: 1px solid var(--border-color, #e2e8f0);
   background: var(--table-header-bg, #e2e8f0);
   color: var(--table-header-color, #334155);
   font-weight: 600;
 }
-
-.md-preview tbody tr:nth-child(even) td {
-  background: var(--table-row-even-bg, #f1f5f9);
+.md-plugin-wrap[data-table-style="auto"] .md-preview td {
+  border: 1px solid var(--border-color, #e2e8f0);
+  color: var(--table-cell-color, #334155);
 }
-
-.md-preview tbody tr:nth-child(odd) td {
-  background: var(--table-row-odd-bg, var(--preview-bg, #fff));
-}
+.md-plugin-wrap[data-table-style="auto"] .md-preview tbody tr:nth-child(even) td { background: var(--table-row-even-bg, #f1f5f9); }
+.md-plugin-wrap[data-table-style="auto"] .md-preview tbody tr:nth-child(odd)  td { background: var(--table-row-odd-bg, #ffffff); }
+.md-plugin-wrap[data-table-style="auto"] .md-preview tbody tr:hover            td { background: var(--hover-bg, #f8fafc); }
 
 .md-preview a {
   color: var(--accent-color, #4f46e5);
@@ -233,28 +322,18 @@
   aspect-ratio: 1;
   height: auto;
   box-sizing: border-box;
+
+  /* Card styling — background from active preset, fallback to light white */
+  background: var(--md-mermaid-bg, #f8fafc);
+  border-radius: 10px;
+  padding: 16px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(0, 0, 0, 0.07);
 }
 
 .md-preview .md-mermaid svg {
   width: 100%;
   height: 100%;
   display: block;
-}
-
-/* ── Stronger contrast for Mermaid diagrams in dark mode ─────── */
-
-@media (prefers-color-scheme: dark) {
-  /* Solid text (no outline); dark fill for legibility on light node boxes */
-  .md-preview .md-mermaid svg text {
-    fill: #0f172a !important;
-  }
-
-  .md-preview .md-mermaid svg line,
-  .md-preview .md-mermaid svg path,
-  .md-preview .md-mermaid svg polyline,
-  .md-preview .md-mermaid svg polygon {
-    stroke: #475569 !important;
-  }
 }
 
 /* ── Dark mode (override via host or prefers-color-scheme) ───── */
@@ -267,14 +346,49 @@
     --table-row-even-bg: #1e293b;
     --table-row-odd-bg: #0f172a;
 
-    /* Dark-theme Mermaid tokens: bright labels + lines on dark bg */
-    --md-mermaid-primary: var(--table-header-bg, #334155);
-    --md-mermaid-primary-text: #f9fafb;
-    --md-mermaid-line: #e5e7eb;
-    --md-mermaid-secondary: var(--table-row-even-bg, #1e293b);
-    --md-mermaid-tertiary: var(--table-row-odd-bg, #0f172a);
+    /* Mermaid "Auto" preset fallback tokens for dark backgrounds */
+    --md-mermaid-primary:        var(--table-header-bg, #334155);
+    --md-mermaid-primary-text:   #f9fafb;
+    --md-mermaid-line:           #e5e7eb;
+    --md-mermaid-secondary:      var(--table-row-even-bg, #1e293b);
+    --md-mermaid-tertiary:       var(--table-row-odd-bg, #0f172a);
     --md-mermaid-secondary-text: #e5e7eb;
-    --md-mermaid-actor-text: #f9fafb;
-    --md-mermaid-note-text: #f9fafb;
+    --md-mermaid-actor-text:     #f9fafb;
+    --md-mermaid-note-text:      #111827;
+    --md-mermaid-signal-text:    #e5e7eb;
+    --md-mermaid-label-text:     #e5e7eb;
+    --md-mermaid-actor-line:     #56B4E9;
+    --md-mermaid-bg:             #0f172a;
+  }
+}
+
+/* ── Mermaid diagram line widths ─────────────────────────────── */
+
+/* Lifelines (vertical dashed lines from actor boxes) */
+.md-preview .md-mermaid svg .actor-line {
+  stroke: var(--md-mermaid-actor-line, #56B4E9) !important;
+  stroke-width: 2 !important;
+}
+
+/* Horizontal signal/message lines (solid and dashed arrows) */
+.md-preview .md-mermaid svg .messageLine0,
+.md-preview .md-mermaid svg .messageLine1 {
+  stroke-width: 1.5 !important;
+}
+
+/* ── Pie chart segment borders ───────────────────────────────── */
+/* White semi-transparent border: visible on dark backgrounds,
+   subtle (but present) on light ones */
+.md-preview .md-mermaid svg .pieCircle,
+.md-preview .md-mermaid svg path[class*="pie"],
+.md-preview .md-mermaid svg .slices path {
+  stroke: var(--md-mermaid-pie-stroke, rgba(255, 255, 255, 0.65)) !important;
+  stroke-width: 2px !important;
+}
+
+/* In light mode, use a dark semi-transparent border instead */
+@media (prefers-color-scheme: light) {
+  .md-plugin-wrap {
+    --md-mermaid-pie-stroke: rgba(0, 0, 0, 0.25);
   }
 }

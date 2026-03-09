@@ -2,8 +2,22 @@
 	"ver": 1,
 	"name": "Markdown Preview",
 	"icon": "file-text",
+	"item_name": "Note",
 	"description": "Preview the current record as rendered Markdown in a read-only panel. Opens from the status bar; updates when you change records or edit content.",
 	"show_sidebar_items": true,
 	"show_cmdpal_items": true,
-	"version": "1.0.3"
+	"views": [],
+	"fields": [],
+	"page_field_ids": [],
+	"sidebar_record_sort_field_id": "updated_at",
+	"sidebar_record_sort_dir": "desc",
+	"managed": {
+		"fields": false,
+		"views": false,
+		"sidebar": false
+	},
+	"custom": {},
+	"home": false,
+	"version": "1.2.0",
+	"__source_repo": "https://github.com/RobbK17/thymer-mdviewer"
 }
