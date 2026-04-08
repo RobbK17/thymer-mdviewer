@@ -79,11 +79,6 @@
   white-space: nowrap;
 }
 
-.md-pill.dirty {
-  background: #fef3c7;
-  color: #92400e;
-}
-
 /* ── Preview ─────────────────────────────────────────────────── */
 
 .md-preview {
@@ -125,6 +120,8 @@
 .md-preview h3 { font-size: 1.15em; }
 .md-preview h4 { font-size: 1em; }
 .md-preview h1:first-child, .md-preview h2:first-child { margin-top: 0; }
+
+.md-preview strong, .md-preview b { font-weight: 700 !important; }
 
 .md-preview p  { margin: 0 0 1em; }
 .md-preview ul, .md-preview ol { padding-left: 1.6em; margin: 0 0 1em; }

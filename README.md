@@ -5,9 +5,11 @@ A [Thymer](https://thymer.com) **App Plugin** that shows a read-only, live-rende
 ## Features
 
 - **Status bar toggle** — article icon in the app footer; click to open or close the preview panel.
-- **Live preview** — Renders the active record as GitHub Flavored Markdown (tables, code, blockquotes, etc.).
+- **Live preview** — Renders the active record as GitHub Flavored Markdown (tables, code, blockquotes, bold/italic, etc.).
 - **Auto-refresh** — Updates when you switch records or when content is edited.
-- **Zoom controls** — `−` / `+` buttons and a `%` label in the toolbar. Double-click the label to reset to 100 %. Ctrl/Cmd + scroll wheel also zooms. Range: 40 %–250 %.
+- **Zoom controls** — Compact `−` / `100%` / `+` button group in the toolbar. Double-click the `%` label to reset to 100 %. Ctrl/Cmd + scroll wheel also zooms. Range: 40 %–250 %.
+- **Export to PDF** — **PDF** button in the toolbar exports the rendered preview to PDF via the browser print dialog. Focus is set to the preview panel automatically before printing.
+- **Word count** — Live word count shown next to the record title in the toolbar; counts from rendered text (Markdown syntax excluded).
 - **Tables** — Four selectable style presets (Hi-Contrast, Monochrome, Blue Stripe, Auto); row hover highlighting; selectable text.
 - **Colorblind-safe styling** — Table styles and Mermaid diagram themes are built on the [Okabe-Ito](https://jfly.uni-koeln.de/color/) palette. Avoids red/green as dominant hues. Colors are fully hardcoded so the preview looks the same regardless of which Thymer theme is active.
 - **Mermaid diagrams** — Fenced `mermaid` blocks are rendered as flowcharts, sequence diagrams, pie charts, and other Mermaid chart types. Each diagram is shown in a styled card whose background color matches the active preset. Sequence diagram lifelines, signal arrows, loop labels, and note text are all colorblind-safe and readable. Pie chart segment borders are enforced for contrast.
@@ -158,6 +160,20 @@ The plugin loads libraries from CDN at runtime — no build step required:
 ---
 
 ## Changelog
+
+### v1.2.1
+
+#### New features
+- **Export to PDF** — A **PDF** button in the toolbar exports the fully-rendered Markdown preview (headings, bold, tables, etc.) to PDF via the browser's print dialog. The preview panel receives focus before printing, and `@media print` styles ensure only the preview content appears in the output. The exported PDF includes the record title as an `<h1>`.
+- **Word count next to title** — The live word count pill has moved from the far-right of the toolbar to sit immediately after the record title, so it is always visible even on narrow panels.
+- **Compact zoom group** — The `−`, `100%`, and `+` zoom controls are now a single joined button group with shared borders, saving toolbar space.
+
+#### Bug fixes
+- **Paragraph rendering** — Thymer's `getAsMarkdown()` joins line items with a single `\n`. Previously, `breaks: true` converted these into `<br>` tags, collapsing all paragraphs into one block. A new `normalizeParagraphBreaks()` step now inserts blank lines between consecutive content lines (outside code fences and tables) so marked.js sees proper paragraph boundaries. Table rows and consecutive list items are left untouched.
+- **Bold text** — Thymer's host CSS resets `font-weight` globally, which suppressed `<strong>` and `<b>` rendering in the preview. An explicit `font-weight: 700 !important` rule now overrides this so bold text is visually distinct.
+- **Word count accuracy** — The word count now reads from `domPreview.innerText` (the already-rendered DOM) instead of splitting the raw Markdown string, so Markdown syntax characters (`**`, `#`, `---`, URLs, etc.) are no longer counted as words.
+
+---
 
 ### v1.2.0
 

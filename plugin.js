@@ -4,8 +4,8 @@
  * Opens a read-only live preview of the current record in a new panel.
  * Auto-refreshes whenever the record's content changes.
  *
- * genvalue: 2026-03-09-15
- * version: 1.2.0
+ * genvalue: 2026-03-09-23
+ * version: 1.2.1
  */
 
 // ── External libs (pinned versions; check changelogs before upgrading) ──────────
@@ -96,6 +96,32 @@ function loadDOMPurify() {
     document.head.appendChild(s);
   });
   return _dompurifyPromise;
+}
+
+function normalizeParagraphBreaks(md) {
+  if (!md || typeof md !== "string") return md;
+  const lines = md.split("\n");
+  const out = [];
+  let inFence = false;
+  const isTableRow = (l) => /^\s*\|/.test(l);
+  const isListItem  = (l) => /^\s*[-*+]\s/.test(l) || /^\s*\d+\.\s/.test(l);
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (/^\s*```/.test(line)) inFence = !inFence;
+    if (!inFence && out.length > 0) {
+      const prev = out[out.length - 1];
+      const prevBlank = /^\s*$/.test(prev);
+      const currBlank = /^\s*$/.test(line);
+      const inTable = isTableRow(line) && isTableRow(prev);
+      const inList  = isListItem(line)  && isListItem(prev);
+      if (!prevBlank && !currBlank && !inTable && !inList) {
+        out.push("");
+      }
+    }
+    out.push(line);
+  }
+  return out.join("\n");
 }
 
 function normalizeTableBoundaries(md) {
@@ -247,24 +273,31 @@ class Plugin extends AppPlugin {
       }
 
       /* ── Zoom controls ── */
+      .md-zoom-group { display: flex; align-items: center; flex-shrink: 0; }
       .md-zoom-btn {
-        font-size: 14px; line-height: 1; padding: 1px 7px; border-radius: 4px;
+        font-size: 14px; line-height: 1; padding: 1px 7px; border-radius: 0;
         border: 1px solid rgba(0,0,0,0.2); background: transparent;
         cursor: pointer; color: inherit; flex-shrink: 0; user-select: none;
       }
+      .md-zoom-group .md-zoom-btn:first-child { border-radius: 4px 0 0 4px; }
+      .md-zoom-group .md-zoom-btn:last-child  { border-radius: 0 4px 4px 0; border-left: none; }
       .md-zoom-btn:hover { background: rgba(0,0,0,0.07); }
       @media (prefers-color-scheme: dark) {
         .md-zoom-btn { border-color: rgba(255,255,255,0.2); }
         .md-zoom-btn:hover { background: rgba(255,255,255,0.07); }
       }
       .md-zoom-label {
-        font-size: 11px; padding: 2px 5px; border-radius: 999px; min-width: 42px;
+        font-size: 11px; padding: 2px 5px; min-width: 38px; border-radius: 0;
         text-align: center; background: rgba(0,0,0,0.06); white-space: nowrap;
         cursor: pointer; user-select: none;
+        border-top: 1px solid rgba(0,0,0,0.2); border-bottom: 1px solid rgba(0,0,0,0.2);
       }
       .md-zoom-label:hover { background: rgba(0,0,0,0.12); }
       @media (prefers-color-scheme: dark) {
-        .md-zoom-label { background: rgba(255,255,255,0.08); }
+        .md-zoom-label {
+          background: rgba(255,255,255,0.08);
+          border-color: rgba(255,255,255,0.2);
+        }
         .md-zoom-label:hover { background: rgba(255,255,255,0.14); }
       }
 
@@ -281,6 +314,7 @@ class Plugin extends AppPlugin {
       }
       .md-preview h1,.md-preview h2,.md-preview h3,.md-preview h4,.md-preview h5,.md-preview h6 { font-weight: 700; line-height: 1.3; margin: 1em 0 0.5em; }
       .md-preview h1 { font-size: 1.75em; } .md-preview h2 { font-size: 1.4em; }
+      .md-preview strong, .md-preview b { font-weight: 700 !important; }
       .md-preview p { margin: 0 0 1em; }
       .md-preview ul,.md-preview ol { padding-left: 1.6em; margin: 0 0 1em; }
       .md-preview li { margin-bottom: 0.25em; }
@@ -493,9 +527,8 @@ function mountPreviewPanel(plugin, panel) {
     }
 
     // ── State
-    let activeRecord       = null;
-    let currentTableStyleId = "hc";
-    let zoomLevel          = 1.0;
+    let activeRecord  = null;
+    let zoomLevel     = 1.0;
     const ZOOM_STEP = 0.1;
     const ZOOM_MIN  = 0.4;
     const ZOOM_MAX  = 2.5;
@@ -548,7 +581,7 @@ function mountPreviewPanel(plugin, panel) {
       if (activeRecord) rerender(activeRecord.guid);
     }
 
-    function applyTableStylePreset(id) { currentTableStyleId = id; wrap.dataset.tableStyle = id; }
+    function applyTableStylePreset(id) { wrap.dataset.tableStyle = id; }
 
     // ── Toolbar
     const toolbar = document.createElement("div");
@@ -634,14 +667,48 @@ function mountPreviewPanel(plugin, panel) {
     domZoomIn.title = "Zoom in  (Ctrl + scroll)";
     domZoomIn.addEventListener("click", () => { applyZoom(zoomLevel + ZOOM_STEP); restoreFocusAfterDropdown(); });
     domZoomIn.addEventListener("blur",  restoreFocusAfterDropdown);
-    
+
+    const domZoomGroup = document.createElement("div");
+    domZoomGroup.className = "md-zoom-group";
+    domZoomGroup.append(domZoomOut, domZoomLabel, domZoomIn);
+
+    // PDF export button
+    const domPdfBtn = document.createElement("button");
+    domPdfBtn.className = "md-zoom-btn";
+    domPdfBtn.textContent = "PDF";
+    domPdfBtn.title = "Export preview to PDF";
+    domPdfBtn.addEventListener("click", () => {
+      if (typeof plugin.ui.setActivePanel === "function") plugin.ui.setActivePanel(panel);
+      const printEl = document.createElement("div");
+      printEl.id = "md-pdf-export";
+      printEl.style.cssText = "background:white;color:black;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12pt;line-height:1.6;padding:0.75in;max-width:8.5in;";
+      const titleEl = document.createElement("h1");
+      titleEl.textContent = activeRecord ? (activeRecord.getName() || "Untitled") : "Untitled";
+      titleEl.style.marginBottom = "0.75em";
+      printEl.appendChild(titleEl);
+      const contentEl = document.createElement("div");
+      contentEl.innerHTML = domPreview.innerHTML;
+      printEl.appendChild(contentEl);
+      document.body.appendChild(printEl);
+      const printStyle = document.createElement("style");
+      printStyle.id = "md-pdf-print-style";
+      printStyle.textContent = `@media print{body>*:not(#md-pdf-export){display:none!important}#md-pdf-export{display:block!important;position:static;width:auto}@page{margin:0.5in}}`;
+      document.head.appendChild(printStyle);
+      setTimeout(() => {
+        window.print();
+        setTimeout(() => { printEl.remove(); printStyle.remove(); }, 1000);
+      }, 300);
+      restoreFocusAfterDropdown();
+    });
+    domPdfBtn.addEventListener("blur", restoreFocusAfterDropdown);
+
     // Word count pill
     const domWC = Object.assign(document.createElement("span"), {
       className: "md-pill", textContent: "0 words"
     });
 
-    right.append(tableStyleSelect, themeSelect, domZoomOut, domZoomLabel, domZoomIn, domWC);
-    toolbar.append(domTitle, right);
+    right.append(tableStyleSelect, themeSelect, domZoomGroup, domPdfBtn);
+    toolbar.append(domTitle, domWC, right);
 
     // ── Preview area
     const domPreview = document.createElement("div");
@@ -677,10 +744,10 @@ function mountPreviewPanel(plugin, panel) {
 
         const { markdown: mdWithPlaceholders, blocks: mermaidBlocks } = extractMermaidBlocks(markdown);
 
-        const normalized = normalizeTableBoundaries(mdWithPlaceholders);
+        const normalized = normalizeTableBoundaries(normalizeParagraphBreaks(mdWithPlaceholders));
         const marked     = await loadMarked();
         const parse      = typeof marked.parse === "function" ? marked.parse : marked;
-        const rawHtml    = typeof parse === "function" ? parse(normalized, { breaks: true, gfm: true }) : String(normalized);
+        const rawHtml    = typeof parse === "function" ? parse(normalized, { gfm: true }) : String(normalized);
         const DOMPurify  = await loadDOMPurify();
         const html       = DOMPurify ? DOMPurify.sanitize(rawHtml) : rawHtml;
 
@@ -785,7 +852,7 @@ function mountPreviewPanel(plugin, panel) {
           }
         }
 
-        const wc = markdown.trim() ? markdown.trim().split(/\s+/).length : 0;
+        const wc = (domPreview.innerText || domPreview.textContent || "").trim().split(/\s+/).filter(Boolean).length;
         domWC.textContent = wc + " word" + (wc !== 1 ? "s" : "");
 
       } catch (err) {
