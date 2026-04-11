@@ -15,6 +15,7 @@ A [Thymer](https://thymer.com) **App Plugin** that shows a read-only, live-rende
 - **Mermaid diagrams** — Fenced `mermaid` blocks are rendered as flowcharts, sequence diagrams, pie charts, and other Mermaid chart types. Each diagram is shown in a styled card whose background color matches the active preset. Sequence diagram lifelines, signal arrows, loop labels, and note text are all colorblind-safe and readable. Pie chart segment borders are enforced for contrast.
 - **Adaptive light/dark diagrams** — Every named Mermaid preset carries both a `light` and `dark` color variant; the correct one is selected automatically based on the OS `prefers-color-scheme` setting.
 - **Safe rendering** — HTML is sanitized with DOMPurify when available.
+- **Deferred loading** — CDN libraries are not loaded at Thymer startup. Marked and DOMPurify load when the preview panel opens; Mermaid loads only when a diagram is detected. All loads have a 10-second timeout to prevent Thymer from hanging on slow or unreachable CDNs.
 
 ## How to use
 
@@ -125,7 +126,7 @@ Flowcharts, sequence diagrams, pie charts, Gantt charts, and other [Mermaid](htt
 
 | File | Purpose |
 |---|---|
-| `plugin.js` | All plugin logic: status bar toggle, panel management, Markdown/Mermaid loading and rendering, table normalization, Mermaid block extraction, colorblind-safe table and diagram presets, toolbar (dropdowns + zoom), SVG post-processing for lifelines and pie borders. |
+| `plugin.js` | All plugin logic: status bar toggle, panel management, deferred CDN loading with timeouts, Markdown/Mermaid rendering, table normalization, Mermaid block extraction, colorblind-safe table and diagram presets, toolbar (dropdowns + zoom + PDF export), SVG post-processing for lifelines and pie borders, render debounce and race guard. |
 | `plugin.css` | Stylesheet loaded by Thymer alongside the plugin: layout (toolbar, preview area), table preset rules, diagram card styles, Mermaid line-width and stroke overrides, dark-mode CSS variable fallbacks. |
 | `plugin.json` | Plugin manifest (see below). |
 
@@ -151,27 +152,43 @@ This is a **Global App Plugin**. The plugin code does not use views, fields, or 
 
 The plugin loads libraries from CDN at runtime — no build step required:
 
-| Library | Version | Purpose |
-|---|---|---|
-| [marked](https://marked.js.org/) | v9 | Markdown → HTML |
-| [DOMPurify](https://github.com/cure53/DOMPurify) | v3 | HTML sanitization |
-| [Mermaid](https://mermaid.js.org/) | v9 | Diagram rendering from fenced `mermaid` blocks |
+| Library | Version | Purpose | When loaded |
+|---|---|---|---|
+| [marked](https://marked.js.org/) | v9 | Markdown → HTML | Panel opens |
+| [DOMPurify](https://github.com/cure53/DOMPurify) | v3 | HTML sanitization | Panel opens |
+| [Mermaid](https://mermaid.js.org/) | v9 | Diagram rendering from fenced `mermaid` blocks | First diagram detected |
+
+All three loads have a **10-second timeout**. If the CDN is unreachable, the preview renders without the missing library (Mermaid diagrams show an error; DOMPurify is optional). Timed-out loads are retried automatically on the next render. A `<link rel="dns-prefetch">` for `cdn.jsdelivr.net` is added at startup to speed up later fetches.
 
 ---
 
 ## Changelog
 
-### v1.2.1
+### v1.2.2
 
 #### New features
 - **Export to PDF** — A **PDF** button in the toolbar exports the fully-rendered Markdown preview (headings, bold, tables, etc.) to PDF via the browser's print dialog. The preview panel receives focus before printing, and `@media print` styles ensure only the preview content appears in the output. The exported PDF includes the record title as an `<h1>`.
 - **Word count next to title** — The live word count pill has moved from the far-right of the toolbar to sit immediately after the record title, so it is always visible even on narrow panels.
 - **Compact zoom group** — The `−`, `100%`, and `+` zoom controls are now a single joined button group with shared borders, saving toolbar space.
 
+#### Performance
+- **Deferred library loading** — CDN libraries (marked, DOMPurify, Mermaid) are no longer loaded eagerly at Thymer startup. Marked and DOMPurify begin loading when the preview panel opens; Mermaid loads on demand only when a diagram is first detected. This eliminates all CDN network traffic from the startup path.
+- **10-second CDN timeout** — Each library load now has a `CDN_TIMEOUT_MS` (10 s) timeout. On timeout or error, the promise is nulled to allow automatic retry on the next render. Prevents Thymer from hanging indefinitely on slow or unreachable CDNs.
+- **Parallel library loading** — Marked and DOMPurify are loaded with `Promise.all` instead of sequentially, saving up to one full round-trip on first render.
+- **DNS prefetch** — A `<link rel="dns-prefetch">` for `cdn.jsdelivr.net` is added at plugin startup (near-zero cost) so DNS resolution is already warm when the panel eventually opens.
+- **Duplicate script guard** — `appendScriptOnce()` checks whether a `<script>` tag for a given CDN URL already exists before appending, preventing duplicate script tags from accumulating after timeout + retry cycles.
+- **Deferred CSS injection** — Only 2 lines of status-bar CSS are injected at startup. The bulk panel/table/mermaid stylesheet (~150 rules) is deferred to a `<style>` element created when the panel first opens.
+- **Pre-compiled regexes** — Regexes used in `normalizeParagraphBreaks` and `normalizeTableBoundaries` are hoisted to module-level constants to avoid re-compilation on every render.
+- **Render debounce** — `rerender()` (triggered by `lineitem.updated` events) is debounced at 300 ms, so rapid typing coalesces into a single re-render instead of one per keystroke.
+- **Render race guard** — A monotonic generation counter prevents stale renders from overwriting newer ones when the user switches records quickly while CDN loads are in-flight.
+- **Loading indicator** — The preview area shows "Loading…" while awaiting CDN libraries on first render, instead of appearing blank.
+
 #### Bug fixes
 - **Paragraph rendering** — Thymer's `getAsMarkdown()` joins line items with a single `\n`. Previously, `breaks: true` converted these into `<br>` tags, collapsing all paragraphs into one block. A new `normalizeParagraphBreaks()` step now inserts blank lines between consecutive content lines (outside code fences and tables) so marked.js sees proper paragraph boundaries. Table rows and consecutive list items are left untouched.
 - **Bold text** — Thymer's host CSS resets `font-weight` globally, which suppressed `<strong>` and `<b>` rendering in the preview. An explicit `font-weight: 700 !important` rule now overrides this so bold text is visually distinct.
 - **Word count accuracy** — The word count now reads from `domPreview.innerText` (the already-rendered DOM) instead of splitting the raw Markdown string, so Markdown syntax characters (`**`, `#`, `---`, URLs, etc.) are no longer counted as words.
+- **Marked retry recovery** — `_markedLoadFailed` flag is now cleared at the start of each `loadMarked()` call, so a successful retry after a timeout actually recovers instead of permanently showing "Markdown engine failed to load."
+- **Plugin unload cleanup** — `onUnload()` now removes the injected `<style data-md-panel-css>` and `<link rel="dns-prefetch">` elements from `document.head`, preventing DOM leaks across plugin reloads.
 
 ---
 

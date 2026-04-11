@@ -4,8 +4,8 @@
  * Opens a read-only live preview of the current record in a new panel.
  * Auto-refreshes whenever the record's content changes.
  *
- * genvalue: 2026-03-09-23
- * version: 1.2.1
+ * genvalue: 2026-03-09-26
+ * version: 1.2.2
  */
 
 // ── External libs (pinned versions; check changelogs before upgrading) ──────────
@@ -13,12 +13,20 @@ const MARKED_VERSION = "9";
 const MARKED_CDN = `https://cdn.jsdelivr.net/npm/marked@${MARKED_VERSION}/marked.min.js`;
 const DOMPURIFY_CDN = "https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js";
 const MERMAID_CDN = "https://cdn.jsdelivr.net/npm/mermaid@9/dist/mermaid.min.js";
+const CDN_TIMEOUT_MS = 10000; // 10 s — if CDN doesn't respond, fail fast
 
 let _markedPromise = null;
 let _dompurifyPromise = null;
 let _mermaidPromise = null;
 let _markedLoadFailed = false;
 
+function appendScriptOnce(src) {
+  if (document.querySelector(`script[src="${src}"]`)) return null;
+  const s = document.createElement("script");
+  s.src = src;
+  document.head.appendChild(s);
+  return s;
+}
 
 function loadMermaid() {
   if (_mermaidPromise) return _mermaidPromise;
@@ -59,28 +67,40 @@ function loadMermaid() {
       resolve(window.mermaid);
     };
     if (window.mermaid) { initMermaid(); return; }
-    const s = document.createElement("script");
-    s.src = MERMAID_CDN;
-    s.onload = () => initMermaid();
-    s.onerror = () => { console.warn("[Markdown Preview] Could not load mermaid.js from CDN."); resolve(null); };
-    document.head.appendChild(s);
+    const timer = setTimeout(() => {
+      _mermaidPromise = null;
+      console.warn("[Markdown Preview] Mermaid load timed out after " + CDN_TIMEOUT_MS + "ms.");
+      resolve(null);
+    }, CDN_TIMEOUT_MS);
+    const s = appendScriptOnce(MERMAID_CDN);
+    if (!s) { clearTimeout(timer); initMermaid(); return; }
+    s.onload  = () => { clearTimeout(timer); initMermaid(); };
+    s.onerror = () => { clearTimeout(timer); _mermaidPromise = null; console.warn("[Markdown Preview] Could not load mermaid.js from CDN."); resolve(null); };
   });
   return _mermaidPromise;
 }
 
 function loadMarked() {
   if (_markedPromise) return _markedPromise;
+  _markedLoadFailed = false;
   _markedPromise = new Promise((resolve, reject) => {
     if (window.marked) { resolve(window.marked); return; }
-    const s = document.createElement("script");
-    s.src = MARKED_CDN;
-    s.onload = () => resolve(window.marked);
+    const timer = setTimeout(() => {
+      _markedPromise = null;
+      _markedLoadFailed = true;
+      console.warn("[Markdown Preview] marked.js load timed out after " + CDN_TIMEOUT_MS + "ms.");
+      reject(new Error("marked.js load timed out"));
+    }, CDN_TIMEOUT_MS);
+    const s = appendScriptOnce(MARKED_CDN);
+    if (!s) { clearTimeout(timer); resolve(window.marked); return; }
+    s.onload  = () => { clearTimeout(timer); resolve(window.marked); };
     s.onerror = () => {
+      clearTimeout(timer);
+      _markedPromise = null;
       _markedLoadFailed = true;
       console.warn("[Markdown Preview] Could not load marked.js from CDN.");
       reject(new Error("Could not load marked.js"));
     };
-    document.head.appendChild(s);
   });
   return _markedPromise;
 }
@@ -89,33 +109,47 @@ function loadDOMPurify() {
   if (_dompurifyPromise) return _dompurifyPromise;
   _dompurifyPromise = new Promise((resolve) => {
     if (window.DOMPurify) { resolve(window.DOMPurify); return; }
-    const s = document.createElement("script");
-    s.src = DOMPURIFY_CDN;
-    s.onload = () => resolve(window.DOMPurify);
-    s.onerror = () => { console.warn("[Markdown Preview] Could not load DOMPurify."); resolve(null); };
-    document.head.appendChild(s);
+    const timer = setTimeout(() => {
+      _dompurifyPromise = null;
+      console.warn("[Markdown Preview] DOMPurify load timed out after " + CDN_TIMEOUT_MS + "ms.");
+      resolve(null);
+    }, CDN_TIMEOUT_MS);
+    const s = appendScriptOnce(DOMPURIFY_CDN);
+    if (!s) { clearTimeout(timer); resolve(window.DOMPurify); return; }
+    s.onload  = () => { clearTimeout(timer); resolve(window.DOMPurify); };
+    s.onerror = () => { clearTimeout(timer); _dompurifyPromise = null; console.warn("[Markdown Preview] Could not load DOMPurify."); resolve(null); };
   });
   return _dompurifyPromise;
 }
+
+// Pre-compiled regexes for hot-path normalizers
+const RE_FENCE       = /^\s*```/;
+const RE_BLANK       = /^\s*$/;
+const RE_TABLE_ROW   = /^\s*\|/;
+const RE_LIST_ITEM   = /^\s*[-*+]\s/;
+const RE_LIST_NUM    = /^\s*\d+\.\s/;
+const RE_TABLE_FULL  = /^\s*\|.+\|\s*$/;
+const RE_TABLE_SEP   = /^\s*\|[\s\-:|]+\|\s*$/;
+const RE_ATX_HEADING = /^#+\s/;
+const RE_SETEXT      = /^(\s*=+|\s*-+)\s*$/;
 
 function normalizeParagraphBreaks(md) {
   if (!md || typeof md !== "string") return md;
   const lines = md.split("\n");
   const out = [];
   let inFence = false;
-  const isTableRow = (l) => /^\s*\|/.test(l);
-  const isListItem  = (l) => /^\s*[-*+]\s/.test(l) || /^\s*\d+\.\s/.test(l);
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    if (/^\s*```/.test(line)) inFence = !inFence;
+    if (RE_FENCE.test(line)) inFence = !inFence;
     if (!inFence && out.length > 0) {
       const prev = out[out.length - 1];
-      const prevBlank = /^\s*$/.test(prev);
-      const currBlank = /^\s*$/.test(line);
-      const inTable = isTableRow(line) && isTableRow(prev);
-      const inList  = isListItem(line)  && isListItem(prev);
-      if (!prevBlank && !currBlank && !inTable && !inList) {
+      const prevBlank = RE_BLANK.test(prev);
+      const currBlank = RE_BLANK.test(line);
+      const tbl  = RE_TABLE_ROW.test(line) && RE_TABLE_ROW.test(prev);
+      const list = (RE_LIST_ITEM.test(line) || RE_LIST_NUM.test(line)) &&
+                   (RE_LIST_ITEM.test(prev) || RE_LIST_NUM.test(prev));
+      if (!prevBlank && !currBlank && !tbl && !list) {
         out.push("");
       }
     }
@@ -129,17 +163,13 @@ function normalizeTableBoundaries(md) {
   const lines = md.split("\n");
   const out = [];
   let inTable = false;
-  const tableRowRe     = /^\s*\|.+\|\s*$/;
-  const separatorRe    = /^\s*\|[\s\-:|]+\|\s*$/;
-  const atxHeadingRe   = /^#+\s/;
-  const setextUnderRe  = /^(\s*=+|\s*-+)\s*$/;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const next = lines[i + 1];
-    const isTableRow = tableRowRe.test(line);
-    const isBlank    = /^\s*$/.test(line);
-    const isHeading  = atxHeadingRe.test(line) || setextUnderRe.test(line);
+    const isTableRow = RE_TABLE_FULL.test(line);
+    const isBlank    = RE_BLANK.test(line);
+    const isHeading  = RE_ATX_HEADING.test(line) || RE_SETEXT.test(line);
 
     if (inTable) {
       if (isBlank)                      { inTable = false; out.push(line); }
@@ -147,7 +177,7 @@ function normalizeTableBoundaries(md) {
       else                              { out.push(line); }
       continue;
     }
-    if (isTableRow && next != null && separatorRe.test(next)) { inTable = true; out.push(line); continue; }
+    if (isTableRow && next != null && RE_TABLE_SEP.test(next)) { inTable = true; out.push(line); continue; }
     out.push(line);
   }
   return out.join("\n");
@@ -226,168 +256,25 @@ async function getMarkdownContent(record) {
 class Plugin extends AppPlugin {
 
   onLoad() {
-    loadMarked().catch(() => {});
-    loadDOMPurify().catch(() => {});
-    loadMermaid().catch(() => {});
+    // Libraries are loaded on demand: marked+DOMPurify when the panel opens,
+    // Mermaid only when a diagram is first detected (see buildPanel / renderPreview).
+    // Prime DNS so later fetches resolve faster.
+    if (!document.querySelector('link[rel="dns-prefetch"][href*="cdn.jsdelivr.net"]')) {
+      const dns = document.createElement("link");
+      dns.rel = "dns-prefetch";
+      dns.href = "https://cdn.jsdelivr.net";
+      document.head.appendChild(dns);
+    }
 
     this._previewPanel   = null;
     this._unloadFns      = [];
     this._statusBarItem  = null;
     this._lastActivePanel = null;
 
+    // Minimal CSS needed at startup (status bar only)
     this.ui.injectCSS(`
-      /* ── Status bar ── */
       .md-preview-status-active { font-weight: 600; background: var(--hover-bg, rgba(0,0,0,0.08)) !important; border-radius: 4px; }
       :has(> [data-md-preview-panel="1"]) { position: relative !important; z-index: 10 !important; }
-
-      /* ── Wrap ── */
-      .md-plugin-wrap {
-        width: 100% !important; max-width: 100% !important; overflow: hidden !important;
-        box-sizing: border-box !important; display: flex !important; flex-direction: column !important;
-        min-height: 0 !important; font-family: inherit !important;
-      }
-      .md-plugin-wrap, .md-plugin-wrap * { box-sizing: border-box; }
-
-      /* ── Toolbar ── */
-      .md-toolbar {
-        display: flex !important; align-items: center !important; gap: 8px !important;
-        padding: 6px 12px !important; border-bottom: 1px solid rgba(0,0,0,0.12) !important;
-        flex-shrink: 0 !important; flex-wrap: wrap !important; min-height: 40px !important;
-        width: 100% !important; box-sizing: border-box !important; overflow: hidden !important;
-      }
-      .md-toolbar-title {
-        font-weight: 600; font-size: 14px; flex: 1 1 0; white-space: nowrap;
-        overflow: hidden; text-overflow: ellipsis; min-width: 0;
-      }
-      .md-toolbar-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; flex-wrap: wrap; }
-
-      /* ── Selects ── */
-      .md-table-style-select, .md-mermaid-theme-select {
-        font-size: 11px; padding: 2px 4px; border-radius: 4px;
-        border: 1px solid rgba(0,0,0,0.2); background: #ffffff; color: #111827; cursor: pointer;
-      }
-      @media (prefers-color-scheme: dark) {
-        .md-table-style-select, .md-mermaid-theme-select {
-          background: #1f2937; color: #e5e7eb; border-color: rgba(255,255,255,0.2);
-        }
-      }
-
-      /* ── Zoom controls ── */
-      .md-zoom-group { display: flex; align-items: center; flex-shrink: 0; }
-      .md-zoom-btn {
-        font-size: 14px; line-height: 1; padding: 1px 7px; border-radius: 0;
-        border: 1px solid rgba(0,0,0,0.2); background: transparent;
-        cursor: pointer; color: inherit; flex-shrink: 0; user-select: none;
-      }
-      .md-zoom-group .md-zoom-btn:first-child { border-radius: 4px 0 0 4px; }
-      .md-zoom-group .md-zoom-btn:last-child  { border-radius: 0 4px 4px 0; border-left: none; }
-      .md-zoom-btn:hover { background: rgba(0,0,0,0.07); }
-      @media (prefers-color-scheme: dark) {
-        .md-zoom-btn { border-color: rgba(255,255,255,0.2); }
-        .md-zoom-btn:hover { background: rgba(255,255,255,0.07); }
-      }
-      .md-zoom-label {
-        font-size: 11px; padding: 2px 5px; min-width: 38px; border-radius: 0;
-        text-align: center; background: rgba(0,0,0,0.06); white-space: nowrap;
-        cursor: pointer; user-select: none;
-        border-top: 1px solid rgba(0,0,0,0.2); border-bottom: 1px solid rgba(0,0,0,0.2);
-      }
-      .md-zoom-label:hover { background: rgba(0,0,0,0.12); }
-      @media (prefers-color-scheme: dark) {
-        .md-zoom-label {
-          background: rgba(255,255,255,0.08);
-          border-color: rgba(255,255,255,0.2);
-        }
-        .md-zoom-label:hover { background: rgba(255,255,255,0.14); }
-      }
-
-      /* ── Word count pill ── */
-      .md-pill { font-size: 11px; padding: 2px 7px; border-radius: 999px; background: rgba(0,0,0,0.06); white-space: nowrap; }
-
-      /* ── Preview area ── */
-      .md-preview {
-        max-width: none !important; box-sizing: border-box !important; min-height: 0 !important;
-        flex: 1 1 0 !important; overflow-y: auto !important; overflow-x: auto !important;
-        -webkit-overflow-scrolling: touch !important; user-select: text !important;
-        -webkit-user-select: text !important; font-size: 14px !important; line-height: 1.75 !important;
-        padding: 12px 16px 24px !important;
-      }
-      .md-preview h1,.md-preview h2,.md-preview h3,.md-preview h4,.md-preview h5,.md-preview h6 { font-weight: 700; line-height: 1.3; margin: 1em 0 0.5em; }
-      .md-preview h1 { font-size: 1.75em; } .md-preview h2 { font-size: 1.4em; }
-      .md-preview strong, .md-preview b { font-weight: 700 !important; }
-      .md-preview p { margin: 0 0 1em; }
-      .md-preview ul,.md-preview ol { padding-left: 1.6em; margin: 0 0 1em; }
-      .md-preview li { margin-bottom: 0.25em; }
-      .md-preview code { font-family: monospace; font-size: 0.9em; background: rgba(0,0,0,0.06); padding: 0.15em 0.4em; border-radius: 3px; }
-      .md-preview pre { background: rgba(0,0,0,0.05); padding: 1em; overflow-x: auto; margin: 0 0 1em; border-radius: 6px; }
-      .md-preview pre code { background: none; padding: 0; }
-      .md-preview blockquote { border-left: 3px solid #4f46e5; margin: 0 0 1em; padding: 0.5em 1em; color: #6b7280; }
-      .md-preview a { color: #4f46e5; text-decoration: none; }
-      .md-preview a:hover { text-decoration: underline; }
-      .md-preview hr { border: none; border-top: 1px solid #e2e8f0; margin: 1.5em 0; }
-      .md-preview img { max-width: 100%; border-radius: 4px; }
-
-      /* ── Tables ── */
-      .md-preview table,.md-preview tr { user-select: text !important; -webkit-user-select: text !important; }
-      .md-preview table { border-collapse: collapse !important; width: 100% !important; margin: 0 0 1em !important; }
-      .md-preview th,.md-preview td { border: 1px solid #94a3b8 !important; padding: 6px 12px !important; text-align: left !important; user-select: text !important; -webkit-user-select: text !important; }
-      .md-preview th { font-weight: 700 !important; }
-
-      /* High Contrast */
-      .md-plugin-wrap[data-table-style="hc"] .md-preview th { background: #1e3a5f !important; color: #ffffff !important; border-color: #94a3b8 !important; }
-      .md-plugin-wrap[data-table-style="hc"] .md-preview td { color: #0f172a !important; border-color: #94a3b8 !important; }
-      .md-plugin-wrap[data-table-style="hc"] .md-preview tbody tr:nth-child(even) td { background: #e8f4fd !important; }
-      .md-plugin-wrap[data-table-style="hc"] .md-preview tbody tr:nth-child(odd) td  { background: #ffffff !important; }
-      .md-plugin-wrap[data-table-style="hc"] .md-preview tbody tr:hover td { background: #fef3c7 !important; color: #0f172a !important; }
-      @media (prefers-color-scheme: dark) {
-        .md-plugin-wrap[data-table-style="hc"] .md-preview th { background: #1e40af !important; color: #ffffff !important; border-color: #475569 !important; }
-        .md-plugin-wrap[data-table-style="hc"] .md-preview td { color: #e2e8f0 !important; border-color: #475569 !important; }
-        .md-plugin-wrap[data-table-style="hc"] .md-preview tbody tr:nth-child(even) td { background: #1e293b !important; }
-        .md-plugin-wrap[data-table-style="hc"] .md-preview tbody tr:nth-child(odd) td  { background: #0f172a !important; }
-        .md-plugin-wrap[data-table-style="hc"] .md-preview tbody tr:hover td { background: #78350f !important; color: #fef3c7 !important; }
-      }
-      /* Monochrome */
-      .md-plugin-wrap[data-table-style="mono"] .md-preview th { background: #111827 !important; color: #ffffff !important; border: 2px solid #374151 !important; }
-      .md-plugin-wrap[data-table-style="mono"] .md-preview td { color: #111827 !important; border-color: #6b7280 !important; }
-      .md-plugin-wrap[data-table-style="mono"] .md-preview tbody tr:nth-child(even) td { background: #f3f4f6 !important; }
-      .md-plugin-wrap[data-table-style="mono"] .md-preview tbody tr:nth-child(odd) td  { background: #ffffff !important; }
-      .md-plugin-wrap[data-table-style="mono"] .md-preview tbody tr:hover td { background: #e5e7eb !important; }
-      @media (prefers-color-scheme: dark) {
-        .md-plugin-wrap[data-table-style="mono"] .md-preview th { background: #1f2937 !important; color: #f9fafb !important; border-color: #6b7280 !important; }
-        .md-plugin-wrap[data-table-style="mono"] .md-preview td { color: #e5e7eb !important; border-color: #4b5563 !important; }
-        .md-plugin-wrap[data-table-style="mono"] .md-preview tbody tr:nth-child(even) td { background: #111827 !important; }
-        .md-plugin-wrap[data-table-style="mono"] .md-preview tbody tr:nth-child(odd) td  { background: #1f2937 !important; }
-        .md-plugin-wrap[data-table-style="mono"] .md-preview tbody tr:hover td { background: #374151 !important; color: #f9fafb !important; }
-      }
-      /* Blue Stripe */
-      .md-plugin-wrap[data-table-style="blue"] .md-preview th { background: #1d4ed8 !important; color: #ffffff !important; border-color: #3b82f6 !important; }
-      .md-plugin-wrap[data-table-style="blue"] .md-preview td { color: #1e3a5f !important; border-color: #93c5fd !important; }
-      .md-plugin-wrap[data-table-style="blue"] .md-preview tbody tr:nth-child(even) td { background: #dbeafe !important; }
-      .md-plugin-wrap[data-table-style="blue"] .md-preview tbody tr:nth-child(odd) td  { background: #ffffff !important; }
-      .md-plugin-wrap[data-table-style="blue"] .md-preview tbody tr:hover td { background: #bfdbfe !important; }
-      @media (prefers-color-scheme: dark) {
-        .md-plugin-wrap[data-table-style="blue"] .md-preview th { background: #1e40af !important; color: #ffffff !important; border-color: #3b82f6 !important; }
-        .md-plugin-wrap[data-table-style="blue"] .md-preview td { color: #bfdbfe !important; border-color: #1d4ed8 !important; }
-        .md-plugin-wrap[data-table-style="blue"] .md-preview tbody tr:nth-child(even) td { background: #1e3a5f !important; }
-        .md-plugin-wrap[data-table-style="blue"] .md-preview tbody tr:nth-child(odd) td  { background: #172554 !important; }
-        .md-plugin-wrap[data-table-style="blue"] .md-preview tbody tr:hover td { background: #1e40af !important; color: #e0f2fe !important; }
-      }
-      /* Auto */
-      .md-plugin-wrap[data-table-style="auto"] .md-preview th { background: #e2e8f0 !important; color: #334155 !important; border-color: #e2e8f0 !important; }
-      .md-plugin-wrap[data-table-style="auto"] .md-preview td { color: #334155 !important; border-color: #e2e8f0 !important; }
-      .md-plugin-wrap[data-table-style="auto"] .md-preview tbody tr:nth-child(even) td { background: #f1f5f9 !important; }
-      .md-plugin-wrap[data-table-style="auto"] .md-preview tbody tr:nth-child(odd) td  { background: #ffffff !important; }
-      .md-plugin-wrap[data-table-style="auto"] .md-preview tbody tr:hover td { background: #f8fafc !important; }
-      @media (prefers-color-scheme: dark) {
-        .md-plugin-wrap[data-table-style="auto"] .md-preview th { background: #334155 !important; color: #e2e8f0 !important; border-color: #475569 !important; }
-        .md-plugin-wrap[data-table-style="auto"] .md-preview td { color: #e2e8f0 !important; border-color: #334155 !important; }
-        .md-plugin-wrap[data-table-style="auto"] .md-preview tbody tr:nth-child(even) td { background: #1e293b !important; }
-        .md-plugin-wrap[data-table-style="auto"] .md-preview tbody tr:nth-child(odd) td  { background: #0f172a !important; }
-        .md-plugin-wrap[data-table-style="auto"] .md-preview tbody tr:hover td { background: #334155 !important; }
-      }
-
-      /* ── Mermaid ── */
-      .md-preview .md-mermaid { overflow-x: auto; margin: 1em 0; }
     `);
 
     // ── Panel focus guard — keep real panel active so records open in the right place
@@ -496,6 +383,11 @@ class Plugin extends AppPlugin {
       this._unloadFns.forEach((fn) => { try { fn(); } catch (e) {} });
       this._unloadFns = [];
     }
+    // Remove injected DOM elements so they don't accumulate across plugin reloads
+    const panelCss = document.querySelector("[data-md-panel-css]");
+    if (panelCss) panelCss.remove();
+    const dnsPrefetch = document.querySelector('link[rel="dns-prefetch"][href*="cdn.jsdelivr.net"]');
+    if (dnsPrefetch) dnsPrefetch.remove();
   }
 }
 
@@ -515,6 +407,172 @@ function mountPreviewPanel(plugin, panel) {
   tryMount(60);
 
   function buildPanel(root) {
+    // Pre-warm markdown libraries now that the panel is open.
+    // Mermaid is intentionally omitted here — it's large (~2.5 MB) and loaded
+    // on demand in renderPreview only when diagrams are actually detected.
+    loadMarked().catch(() => {});
+    loadDOMPurify().catch(() => {});
+
+    // Inject panel CSS on first build (bulk styles deferred from onLoad)
+    if (!document.querySelector("[data-md-panel-css]")) {
+      const style = document.createElement("style");
+      style.dataset.mdPanelCss = "1";
+      style.textContent = `
+      /* ── Wrap ── */
+      .md-plugin-wrap {
+        width: 100% !important; max-width: 100% !important; overflow: hidden !important;
+        box-sizing: border-box !important; display: flex !important; flex-direction: column !important;
+        min-height: 0 !important; font-family: inherit !important;
+      }
+      .md-plugin-wrap, .md-plugin-wrap * { box-sizing: border-box; }
+
+      /* ── Toolbar ── */
+      .md-toolbar {
+        display: flex !important; align-items: center !important; gap: 8px !important;
+        padding: 6px 12px !important; border-bottom: 1px solid rgba(0,0,0,0.12) !important;
+        flex-shrink: 0 !important; flex-wrap: wrap !important; min-height: 40px !important;
+        width: 100% !important; box-sizing: border-box !important; overflow: hidden !important;
+      }
+      .md-toolbar-title {
+        font-weight: 600; font-size: 14px; flex: 1 1 0; white-space: nowrap;
+        overflow: hidden; text-overflow: ellipsis; min-width: 0;
+      }
+      .md-toolbar-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; flex-wrap: wrap; }
+
+      /* ── Selects ── */
+      .md-table-style-select, .md-mermaid-theme-select {
+        font-size: 11px; padding: 2px 4px; border-radius: 4px;
+        border: 1px solid rgba(0,0,0,0.2); background: #ffffff; color: #111827; cursor: pointer;
+      }
+      @media (prefers-color-scheme: dark) {
+        .md-table-style-select, .md-mermaid-theme-select {
+          background: #1f2937; color: #e5e7eb; border-color: rgba(255,255,255,0.2);
+        }
+      }
+
+      /* ── Zoom controls ── */
+      .md-zoom-group { display: flex; align-items: center; flex-shrink: 0; }
+      .md-zoom-btn {
+        font-size: 14px; line-height: 1; padding: 1px 7px; border-radius: 0;
+        border: 1px solid rgba(0,0,0,0.2); background: transparent;
+        cursor: pointer; color: inherit; flex-shrink: 0; user-select: none;
+      }
+      .md-zoom-group .md-zoom-btn:first-child { border-radius: 4px 0 0 4px; }
+      .md-zoom-group .md-zoom-btn:last-child  { border-radius: 0 4px 4px 0; border-left: none; }
+      .md-zoom-btn:hover { background: rgba(0,0,0,0.07); }
+      @media (prefers-color-scheme: dark) {
+        .md-zoom-btn { border-color: rgba(255,255,255,0.2); }
+        .md-zoom-btn:hover { background: rgba(255,255,255,0.07); }
+      }
+      .md-zoom-label {
+        font-size: 11px; padding: 2px 5px; min-width: 38px; border-radius: 0;
+        text-align: center; background: rgba(0,0,0,0.06); white-space: nowrap;
+        cursor: pointer; user-select: none;
+        border-top: 1px solid rgba(0,0,0,0.2); border-bottom: 1px solid rgba(0,0,0,0.2);
+      }
+      .md-zoom-label:hover { background: rgba(0,0,0,0.12); }
+      @media (prefers-color-scheme: dark) {
+        .md-zoom-label {
+          background: rgba(255,255,255,0.08);
+          border-color: rgba(255,255,255,0.2);
+        }
+        .md-zoom-label:hover { background: rgba(255,255,255,0.14); }
+      }
+
+      /* ── Word count pill ── */
+      .md-pill { font-size: 11px; padding: 2px 7px; border-radius: 999px; background: rgba(0,0,0,0.06); white-space: nowrap; }
+
+      /* ── Preview area ── */
+      .md-preview {
+        max-width: none !important; box-sizing: border-box !important; min-height: 0 !important;
+        flex: 1 1 0 !important; overflow-y: auto !important; overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important; user-select: text !important;
+        -webkit-user-select: text !important; font-size: 14px !important; line-height: 1.75 !important;
+        padding: 12px 16px 24px !important;
+      }
+      .md-preview h1,.md-preview h2,.md-preview h3,.md-preview h4,.md-preview h5,.md-preview h6 { font-weight: 700; line-height: 1.3; margin: 1em 0 0.5em; }
+      .md-preview h1 { font-size: 1.75em; } .md-preview h2 { font-size: 1.4em; }
+      .md-preview strong, .md-preview b { font-weight: 700 !important; }
+      .md-preview p { margin: 0 0 1em; }
+      .md-preview ul,.md-preview ol { padding-left: 1.6em; margin: 0 0 1em; }
+      .md-preview li { margin-bottom: 0.25em; }
+      .md-preview code { font-family: monospace; font-size: 0.9em; background: rgba(0,0,0,0.06); padding: 0.15em 0.4em; border-radius: 3px; }
+      .md-preview pre { background: rgba(0,0,0,0.05); padding: 1em; overflow-x: auto; margin: 0 0 1em; border-radius: 6px; }
+      .md-preview pre code { background: none; padding: 0; }
+      .md-preview blockquote { border-left: 3px solid #4f46e5; margin: 0 0 1em; padding: 0.5em 1em; color: #6b7280; }
+      .md-preview a { color: #4f46e5; text-decoration: none; }
+      .md-preview a:hover { text-decoration: underline; }
+      .md-preview hr { border: none; border-top: 1px solid #e2e8f0; margin: 1.5em 0; }
+      .md-preview img { max-width: 100%; border-radius: 4px; }
+
+      /* ── Loading state ── */
+      .md-preview.md-loading { display: flex; align-items: center; justify-content: center; color: #6b7280; font-style: italic; }
+
+      /* ── Tables ── */
+      .md-preview table,.md-preview tr { user-select: text !important; -webkit-user-select: text !important; }
+      .md-preview table { border-collapse: collapse !important; width: 100% !important; margin: 0 0 1em !important; }
+      .md-preview th,.md-preview td { border: 1px solid #94a3b8 !important; padding: 6px 12px !important; text-align: left !important; user-select: text !important; -webkit-user-select: text !important; }
+      .md-preview th { font-weight: 700 !important; }
+
+      /* High Contrast */
+      .md-plugin-wrap[data-table-style="hc"] .md-preview th { background: #1e3a5f !important; color: #ffffff !important; border-color: #94a3b8 !important; }
+      .md-plugin-wrap[data-table-style="hc"] .md-preview td { color: #0f172a !important; border-color: #94a3b8 !important; }
+      .md-plugin-wrap[data-table-style="hc"] .md-preview tbody tr:nth-child(even) td { background: #e8f4fd !important; }
+      .md-plugin-wrap[data-table-style="hc"] .md-preview tbody tr:nth-child(odd) td  { background: #ffffff !important; }
+      .md-plugin-wrap[data-table-style="hc"] .md-preview tbody tr:hover td { background: #fef3c7 !important; color: #0f172a !important; }
+      @media (prefers-color-scheme: dark) {
+        .md-plugin-wrap[data-table-style="hc"] .md-preview th { background: #1e40af !important; color: #ffffff !important; border-color: #475569 !important; }
+        .md-plugin-wrap[data-table-style="hc"] .md-preview td { color: #e2e8f0 !important; border-color: #475569 !important; }
+        .md-plugin-wrap[data-table-style="hc"] .md-preview tbody tr:nth-child(even) td { background: #1e293b !important; }
+        .md-plugin-wrap[data-table-style="hc"] .md-preview tbody tr:nth-child(odd) td  { background: #0f172a !important; }
+        .md-plugin-wrap[data-table-style="hc"] .md-preview tbody tr:hover td { background: #78350f !important; color: #fef3c7 !important; }
+      }
+      /* Monochrome */
+      .md-plugin-wrap[data-table-style="mono"] .md-preview th { background: #111827 !important; color: #ffffff !important; border: 2px solid #374151 !important; }
+      .md-plugin-wrap[data-table-style="mono"] .md-preview td { color: #111827 !important; border-color: #6b7280 !important; }
+      .md-plugin-wrap[data-table-style="mono"] .md-preview tbody tr:nth-child(even) td { background: #f3f4f6 !important; }
+      .md-plugin-wrap[data-table-style="mono"] .md-preview tbody tr:nth-child(odd) td  { background: #ffffff !important; }
+      .md-plugin-wrap[data-table-style="mono"] .md-preview tbody tr:hover td { background: #e5e7eb !important; }
+      @media (prefers-color-scheme: dark) {
+        .md-plugin-wrap[data-table-style="mono"] .md-preview th { background: #1f2937 !important; color: #f9fafb !important; border-color: #6b7280 !important; }
+        .md-plugin-wrap[data-table-style="mono"] .md-preview td { color: #e5e7eb !important; border-color: #4b5563 !important; }
+        .md-plugin-wrap[data-table-style="mono"] .md-preview tbody tr:nth-child(even) td { background: #111827 !important; }
+        .md-plugin-wrap[data-table-style="mono"] .md-preview tbody tr:nth-child(odd) td  { background: #1f2937 !important; }
+        .md-plugin-wrap[data-table-style="mono"] .md-preview tbody tr:hover td { background: #374151 !important; color: #f9fafb !important; }
+      }
+      /* Blue Stripe */
+      .md-plugin-wrap[data-table-style="blue"] .md-preview th { background: #1d4ed8 !important; color: #ffffff !important; border-color: #3b82f6 !important; }
+      .md-plugin-wrap[data-table-style="blue"] .md-preview td { color: #1e3a5f !important; border-color: #93c5fd !important; }
+      .md-plugin-wrap[data-table-style="blue"] .md-preview tbody tr:nth-child(even) td { background: #dbeafe !important; }
+      .md-plugin-wrap[data-table-style="blue"] .md-preview tbody tr:nth-child(odd) td  { background: #ffffff !important; }
+      .md-plugin-wrap[data-table-style="blue"] .md-preview tbody tr:hover td { background: #bfdbfe !important; }
+      @media (prefers-color-scheme: dark) {
+        .md-plugin-wrap[data-table-style="blue"] .md-preview th { background: #1e40af !important; color: #ffffff !important; border-color: #3b82f6 !important; }
+        .md-plugin-wrap[data-table-style="blue"] .md-preview td { color: #bfdbfe !important; border-color: #1d4ed8 !important; }
+        .md-plugin-wrap[data-table-style="blue"] .md-preview tbody tr:nth-child(even) td { background: #1e3a5f !important; }
+        .md-plugin-wrap[data-table-style="blue"] .md-preview tbody tr:nth-child(odd) td  { background: #172554 !important; }
+        .md-plugin-wrap[data-table-style="blue"] .md-preview tbody tr:hover td { background: #1e40af !important; color: #e0f2fe !important; }
+      }
+      /* Auto */
+      .md-plugin-wrap[data-table-style="auto"] .md-preview th { background: #e2e8f0 !important; color: #334155 !important; border-color: #e2e8f0 !important; }
+      .md-plugin-wrap[data-table-style="auto"] .md-preview td { color: #334155 !important; border-color: #e2e8f0 !important; }
+      .md-plugin-wrap[data-table-style="auto"] .md-preview tbody tr:nth-child(even) td { background: #f1f5f9 !important; }
+      .md-plugin-wrap[data-table-style="auto"] .md-preview tbody tr:nth-child(odd) td  { background: #ffffff !important; }
+      .md-plugin-wrap[data-table-style="auto"] .md-preview tbody tr:hover td { background: #f8fafc !important; }
+      @media (prefers-color-scheme: dark) {
+        .md-plugin-wrap[data-table-style="auto"] .md-preview th { background: #334155 !important; color: #e2e8f0 !important; border-color: #475569 !important; }
+        .md-plugin-wrap[data-table-style="auto"] .md-preview td { color: #e2e8f0 !important; border-color: #334155 !important; }
+        .md-plugin-wrap[data-table-style="auto"] .md-preview tbody tr:nth-child(even) td { background: #1e293b !important; }
+        .md-plugin-wrap[data-table-style="auto"] .md-preview tbody tr:nth-child(odd) td  { background: #0f172a !important; }
+        .md-plugin-wrap[data-table-style="auto"] .md-preview tbody tr:hover td { background: #334155 !important; }
+      }
+
+      /* ── Mermaid ── */
+      .md-preview .md-mermaid { overflow-x: auto; margin: 1em 0; }
+      `;
+      document.head.appendChild(style);
+    }
+
     root.innerHTML = "";
     root.dataset.mdPreviewPanel = "1";
     root.style.cssText += ";height:100%;display:flex;flex-direction:column;min-height:0;overflow:hidden;box-sizing:border-box;";
@@ -528,6 +586,8 @@ function mountPreviewPanel(plugin, panel) {
 
     // ── State
     let activeRecord  = null;
+    let _renderGen    = 0;  // monotonic counter — stale renders bail after each await
+    let _rerenderTimer = null;
     let zoomLevel     = 1.0;
     const ZOOM_STEP = 0.1;
     const ZOOM_MIN  = 0.4;
@@ -576,8 +636,9 @@ function mountPreviewPanel(plugin, panel) {
         else if (preset[name]) wrap.style.setProperty(name, preset[name]);
         else wrap.style.removeProperty(name);
       });
+      const wasMermaidLoaded = _mermaidPromise !== null;
       _mermaidPromise = null;
-      loadMermaid().catch(() => {});
+      if (wasMermaidLoaded) loadMermaid().catch(() => {}); // reinit only if already in use
       if (activeRecord) rerender(activeRecord.guid);
     }
 
@@ -729,6 +790,7 @@ function mountPreviewPanel(plugin, panel) {
 
     // ── Render
     async function renderPreview(markdown) {
+      const thisGen = ++_renderGen;
       if (!markdown || !markdown.trim()) {
         domPreview.className = "md-preview empty-state";
         domPreview.textContent = "Nothing to preview yet";
@@ -742,13 +804,16 @@ function mountPreviewPanel(plugin, panel) {
           return;
         }
 
+        domPreview.className = "md-preview md-loading";
+        domPreview.textContent = "Loading\u2026";
+
         const { markdown: mdWithPlaceholders, blocks: mermaidBlocks } = extractMermaidBlocks(markdown);
 
         const normalized = normalizeTableBoundaries(normalizeParagraphBreaks(mdWithPlaceholders));
-        const marked     = await loadMarked();
+        const [marked, DOMPurify] = await Promise.all([loadMarked(), loadDOMPurify()]);
+        if (thisGen !== _renderGen) return; // a newer render superseded this one
         const parse      = typeof marked.parse === "function" ? marked.parse : marked;
         const rawHtml    = typeof parse === "function" ? parse(normalized, { gfm: true }) : String(normalized);
-        const DOMPurify  = await loadDOMPurify();
         const html       = DOMPurify ? DOMPurify.sanitize(rawHtml) : rawHtml;
 
         domPreview.className = "md-preview";
@@ -760,6 +825,7 @@ function mountPreviewPanel(plugin, panel) {
 
         if (mermaidBlocks.length > 0) {
           const mermaid = await loadMermaid();
+          if (thisGen !== _renderGen) return;
           if (mermaid && typeof mermaid.render === "function") {
             const badNum      = /-?Infinity|NaN/;
             const placeholders = domPreview.querySelectorAll("[data-md-mermaid-id]");
@@ -889,12 +955,16 @@ function mountPreviewPanel(plugin, panel) {
       if (newGuid !== activeGuid) await loadRecord(record ?? null);
     }
 
-    async function rerender(changedRecordGuid) {
+    function rerender(changedRecordGuid) {
       if (!activeRecord || changedRecordGuid !== activeRecord.guid) return;
-      const record = plugin.data.getRecord(activeRecord.guid);
-      if (!record) return;
-      const content = await getMarkdownContent(record);
-      await renderPreview(content);
+      if (_rerenderTimer) clearTimeout(_rerenderTimer);
+      _rerenderTimer = setTimeout(async () => {
+        _rerenderTimer = null;
+        const record = plugin.data.getRecord(activeRecord.guid);
+        if (!record) return;
+        const content = await getMarkdownContent(record);
+        await renderPreview(content);
+      }, 300);
     }
 
     root._mdRefresh  = refresh;
